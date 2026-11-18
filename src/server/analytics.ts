@@ -135,7 +135,7 @@ export function toolEvents(
 export function turnEvents(
   properties: Extract<AnalyticsEvent, { event: 'turn_completed' }>['properties'],
 ): AnalyticsEvent[] {
-  const { source, outcome, result, duration_ms } = properties;
+  const { source, outcome, result, duration_ms, waiting_reason, failure_reason } = properties;
   return [
     { event: 'turn_completed', properties },
     {
@@ -146,6 +146,8 @@ export function turnEvents(
         $ai_is_error: outcome === 'failed',
         outcome,
         ...(result ? { result } : {}),
+        ...(waiting_reason ? { waiting_reason } : {}),
+        ...(failure_reason ? { failure_reason } : {}),
       },
     },
   ];
@@ -260,7 +262,8 @@ export async function createAnalytics(options: {
     const generation = kind === '$ai_generation';
     const child = generation || kind === '$ai_span';
     if ((kind === '$ai_span' || kind === '$ai_trace') && !runId) return;
-    const trace = runId ?? randomUUID();
+    const traced = child || kind === '$ai_trace';
+    const trace = traced ? (runId ?? randomUUID()) : undefined;
     const mirror =
       kind === 'model_used' ? '$ai_generation' : kind === 'tool_used' && runId ? '$ai_span' : null;
     try {
@@ -289,7 +292,7 @@ export async function createAnalytics(options: {
                   : {})),
             ...('properties' in parsed.data ? parsed.data.properties : {}),
             ...(mirror ? { mirrored_as: mirror } : {}),
-            ...(child || kind === '$ai_trace' ? { $ai_trace_id: trace } : {}),
+            ...(traced ? { $ai_trace_id: trace } : {}),
             ...(child ? { $ai_span_id: randomUUID(), $ai_parent_id: trace } : {}),
           },
         },

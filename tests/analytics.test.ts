@@ -1187,6 +1187,36 @@ test('tool spans and the turn trace follow the analytics run without private too
     ['user', 9.8, false, run, 'cancelled'],
   );
   assert.equal(Object.hasOwn(sent, '$ai_span_id'), false);
+  const reasons = (properties: Parameters<typeof turnEvents>[0]) =>
+    turnEvents(properties).map((event) =>
+      'properties' in event
+        ? [
+            (event.properties as Record<string, unknown>).failure_reason,
+            (event.properties as Record<string, unknown>).waiting_reason,
+          ]
+        : [],
+    );
+  assert.deepEqual(
+    reasons({ ...turn, outcome: 'failed', failure_reason: 'model', duration_ms: 1 }),
+    [
+      ['model', undefined],
+      ['model', undefined],
+    ],
+  );
+  assert.deepEqual(
+    reasons({ ...turn, outcome: 'waiting_user', waiting_reason: 'approval', duration_ms: 1 }),
+    [
+      [undefined, 'approval'],
+      [undefined, 'approval'],
+    ],
+  );
+  for (const event of turnEvents({
+    ...turn,
+    outcome: 'failed',
+    failure_reason: 'model',
+    duration_ms: 1,
+  }))
+    assert.equal(analyticsEvent.safeParse(event).success, true);
   for (const privateValue of ['private-', scope.turnId, scope.sessionId, scope.runId])
     assert.equal(JSON.stringify(captured).includes(privateValue), false);
   const [, span, , , , trace] = segment() as { event: string; properties: object }[];

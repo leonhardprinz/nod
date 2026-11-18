@@ -132,6 +132,8 @@ const turnResult = z.enum([
   'interrupted',
   'skipped',
 ]);
+const turnWaitingReason = z.enum(['question', 'approval', 'credentials']);
+const turnFailureReason = z.enum(['spending_limit', 'model', 'unknown']);
 export const analyticsEvent = z.discriminatedUnion('event', [
   z
     .object({
@@ -265,8 +267,8 @@ export const analyticsEvent = z.discriminatedUnion('event', [
           duration_ms: duration,
           queue_duration_ms: duration.optional(),
           result: turnResult.optional(),
-          waiting_reason: z.enum(['question', 'approval', 'credentials']).optional(),
-          failure_reason: z.enum(['spending_limit', 'model', 'unknown']).optional(),
+          waiting_reason: turnWaitingReason.optional(),
+          failure_reason: turnFailureReason.optional(),
         })
         .strict(),
     })
@@ -281,6 +283,8 @@ export const analyticsEvent = z.discriminatedUnion('event', [
           $ai_is_error: z.boolean(),
           outcome: turnOutcome,
           result: turnResult.optional(),
+          waiting_reason: turnWaitingReason.optional(),
+          failure_reason: turnFailureReason.optional(),
         })
         .strict(),
     })
