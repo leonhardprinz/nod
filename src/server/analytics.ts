@@ -101,7 +101,6 @@ export function analyticsModel(provider: string, model?: string) {
 
 const sessionGap = 30 * 60_000;
 
-// Proactive turns share one observer session per thread, so grouping them would link all of that work.
 export const turnAnalyticsSession = (turn: { session_id: string; proactive?: boolean | null }) =>
   turn.proactive ? undefined : turn.session_id;
 const workspaceTools = new Set(['read', 'bash', 'edit', 'write', 'find', 'ls', 'grep']);
