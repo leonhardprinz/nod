@@ -62,6 +62,7 @@ import type { WorkConsumers } from './work-admission.ts';
 import {
   analyticsModel,
   snapshotAnalytics,
+  turnAnalyticsSession,
   turnEvents,
   type AnalyticsEvent,
   type CaptureAnalytics,
@@ -174,7 +175,7 @@ export interface ThreadDependencies {
   observeTurn?: (
     turnId: string,
     operation: () => Promise<void>,
-    sessionId: string,
+    sessionId?: string,
   ) => Promise<void>;
   taskChecks?: (threadId: string) => Promise<void>;
   taskClassification?: boolean;
@@ -1743,7 +1744,7 @@ async function drainThread(threadId: string, dependencies: ThreadDependencies) {
     const execute = () => executeTurn(turn, dependencies);
     const work = (
       dependencies.observeTurn
-        ? dependencies.observeTurn(turn.id, execute, turn.session_id)
+        ? dependencies.observeTurn(turn.id, execute, turnAnalyticsSession(turn))
         : execute()
     )
       .catch((error) => logFailure('turn_unfinished', error, { threadId, turnId: turn.id }))

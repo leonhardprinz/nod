@@ -16,6 +16,7 @@ import {
   createAnalytics,
   registerAnalyticsRoutes,
   toolEvents,
+  turnAnalyticsSession,
   turnEvents,
   type AnalyticsDelivery,
 } from '../src/server/analytics.ts';
@@ -1316,7 +1317,9 @@ test('AI session IDs group the runs of a session with a random ID that rotates o
   const second = run(chat);
   assert.equal(second[0].$ai_session_id, id);
   assert.notEqual(second[0].$ai_trace_id, first[0].$ai_trace_id);
-  assert.notEqual(run(task)[0].$ai_session_id, id);
+  const taskId = run(task)[0].$ai_session_id;
+  assert.match(String(taskId), /^[0-9a-f-]{36}$/);
+  assert.notEqual(taskId, id);
   t.mock.timers.tick(31 * 60_000);
   const idle = run(chat)[0].$ai_session_id;
   assert.notEqual(idle, id);
@@ -1324,6 +1327,9 @@ test('AI session IDs group the runs of a session with a random ID that rotates o
   analytics.setUsageData(owner, true);
   assert.notEqual(run(chat)[0].$ai_session_id, idle);
   assert.equal(Object.hasOwn(run()[0], '$ai_session_id'), false);
+  assert.equal(turnAnalyticsSession({ session_id: chat, proactive: false }), chat);
+  const proactive = run(turnAnalyticsSession({ session_id: chat, proactive: true }));
+  assert.equal(Object.hasOwn(proactive[0], '$ai_session_id'), false);
   analytics.capture(owner, generation);
   assert.equal(captured.at(-1)!.properties.$ai_session_id, null);
   await analytics.withSystemWork(owner, 'memory_learning', async () =>
