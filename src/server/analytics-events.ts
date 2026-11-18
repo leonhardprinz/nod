@@ -68,6 +68,38 @@ export const analyticsMemoryOperation = z.enum([
   'brief',
 ]);
 const analyticsModel = z.string().regex(/^[a-z0-9][a-z0-9._:/-]{0,119}$/);
+const modelCost = z.number().nonnegative().max(1_000_000);
+const seconds = z
+  .number()
+  .nonnegative()
+  .max(Number.MAX_SAFE_INTEGER / 1000);
+const modelRequestKind = z.enum([
+  'chat',
+  'task',
+  'observer',
+  'helper',
+  'compaction',
+  'cache_warm',
+  'auxiliary',
+  'memory',
+  'review',
+  'tasks',
+  'task_classification',
+  'unclassified',
+]);
+const modelRequest = z.object({
+  purpose: z.enum(['agent', 'memory', 'review', 'tasks', 'task_classification']),
+  memory_operation: analyticsMemoryOperation.optional(),
+  request_kind: modelRequestKind.optional(),
+  attempt: z.number().int().min(1).max(4).optional(),
+  outcome: z.enum(['succeeded', 'failed', 'cancelled']),
+  pricing: z.enum(['api', 'plan_estimate', 'unavailable']),
+});
+const memoryRequest = [
+  ({ purpose, memory_operation }: { purpose: string; memory_operation?: string }) =>
+    memory_operation === undefined || purpose === 'memory',
+  { message: 'Memory operations require a memory request.', path: ['memory_operation'] },
+] satisfies [unknown, unknown];
 const modelConnectionProperties = z.object({
   provider: z.enum(modelProviders),
   method: z.enum(['api_key', 'subscription', 'oauth']),
@@ -454,45 +486,41 @@ export const analyticsEvent = z.discriminatedUnion('event', [
   z
     .object({
       event: z.literal('model_used'),
-      properties: z
-        .object({
+      properties: modelRequest
+        .extend({
           provider: analyticsModelProvider,
           model: analyticsModel.optional(),
-          purpose: z.enum(['agent', 'memory', 'review', 'tasks', 'task_classification']),
-          memory_operation: analyticsMemoryOperation.optional(),
-          request_kind: z
-            .enum([
-              'chat',
-              'task',
-              'observer',
-              'helper',
-              'compaction',
-              'cache_warm',
-              'auxiliary',
-              'memory',
-              'review',
-              'tasks',
-              'task_classification',
-              'unclassified',
-            ])
-            .optional(),
-          attempt: z.number().int().min(1).max(4).optional(),
-          outcome: z.enum(['succeeded', 'failed', 'cancelled']),
           input_tokens: duration,
           output_tokens: duration,
           cached_input_tokens: duration.optional(),
-          cost_usd: z.number().nonnegative().max(1_000_000).optional(),
-          pricing: z.enum(['api', 'plan_estimate', 'unavailable']),
+          cost_usd: modelCost.optional(),
           duration_ms: duration.optional(),
         })
         .strict()
-        .refine(
-          ({ purpose, memory_operation }) => memory_operation === undefined || purpose === 'memory',
-          {
-            message: 'Memory operations require a memory request.',
-            path: ['memory_operation'],
-          },
-        ),
+        .refine(...memoryRequest),
+    })
+    .strict(),
+  z
+    .object({
+      event: z.literal('$ai_generation'),
+      properties: modelRequest
+        .extend({
+          request_kind: modelRequestKind,
+          $ai_provider: analyticsModelProvider,
+          $ai_model: analyticsModel.optional(),
+          $ai_span_name: modelRequestKind,
+          $ai_input_tokens: duration,
+          $ai_output_tokens: duration,
+          $ai_cache_read_input_tokens: duration.optional(),
+          $ai_cache_creation_input_tokens: duration.optional(),
+          $ai_cache_reporting_exclusive: z.literal(true),
+          $ai_latency: seconds.optional(),
+          $ai_is_error: z.boolean(),
+          $ai_total_cost_usd: modelCost,
+          $ai_cost_passthrough: z.literal(true),
+        })
+        .strict()
+        .refine(...memoryRequest),
     })
     .strict(),
   z

@@ -227,6 +227,15 @@ test(
             assert.equal(event.properties.owner_requested, true);
           }
           assert.equal(costs[0]!.properties.model, 'claude-haiku-5-5');
+          const generation = events
+            .slice(before)
+            .find(
+              (event) =>
+                event.event === '$ai_generation' &&
+                event.properties.purpose === 'task_classification',
+            )!;
+          assert.equal(generation.properties.$ai_trace_id, started.properties.run_id);
+          assert.equal(generation.properties.$ai_total_cost_usd, costs[0]!.properties.cost_usd);
           assert.equal(costs[0]!.properties.cost_usd, 0.0001);
           const rows = (await usage(currentClassification.usageId)).rows;
           assert.equal(rows.length, 1);
@@ -257,8 +266,7 @@ test(
               .some(
                 (event) =>
                   event.event === 'task_classified' ||
-                  (event.event === 'model_used' &&
-                    event.properties.purpose === 'task_classification'),
+                  event.properties.purpose === 'task_classification',
               ),
           );
           assert.equal((await usage(currentClassification.usageId)).rows[0].turn_id, id);

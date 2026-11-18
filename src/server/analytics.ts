@@ -225,6 +225,8 @@ export async function createAnalytics(options: {
       }
     }
     const version = analyticsVersion.safeParse(delivery.appVersion ?? appVersion).data;
+    const generation = parsed.data.event === '$ai_generation';
+    const trace = runId ?? randomUUID();
     try {
       options.provider?.capture(
         {
@@ -246,10 +248,14 @@ export async function createAnalytics(options: {
                     owner_requested: false,
                     system_activity: system.activity,
                   }
-                : parsed.data.event === 'model_used'
+                : parsed.data.event === 'model_used' || generation
                   ? { work_type: 'unclassified', owner_requested: false }
                   : {})),
             ...('properties' in parsed.data ? parsed.data.properties : {}),
+            ...(parsed.data.event === 'model_used' ? { mirrored_as: '$ai_generation' } : {}),
+            ...(generation
+              ? { $ai_trace_id: trace, $ai_span_id: randomUUID(), $ai_parent_id: trace }
+              : {}),
           },
         },
         current.signal,
