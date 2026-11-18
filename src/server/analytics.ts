@@ -99,6 +99,7 @@ export function analyticsModel(provider: string, model?: string) {
   };
 }
 
+const sessionGap = 30 * 60_000;
 const workspaceTools = new Set(['read', 'bash', 'edit', 'write', 'find', 'ls', 'grep']);
 const webTools = new Set(['web_search', 'fetch_content', 'get_search_content', 'code_search']);
 
@@ -175,6 +176,7 @@ export async function createAnalytics(options: {
     owner: string;
     id: string;
     consent: ReturnType<typeof consent>;
+    session?: { id: string; last: number };
     model?: ReturnType<typeof analyticsModel>;
     work?: { work_type: 'immediate' | 'scheduled' | 'background'; owner_requested: boolean };
   }>();
@@ -184,7 +186,21 @@ export async function createAnalytics(options: {
     consent: ReturnType<typeof consent>;
     trace: string;
   }>();
+  const sessions = new Map<string, { id: string; last: number; version: number }>();
   let closed = false;
+  function analyticsSession(owner: string, session: string) {
+    const now = Date.now();
+    for (const [key, value] of sessions) if (now - value.last > sessionGap) sessions.delete(key);
+    const key = JSON.stringify([owner, session]);
+    const { version } = state(owner);
+    let current = sessions.get(key);
+    if (!current || current.version !== version) {
+      current = { id: randomUUID(), last: now, version };
+      sessions.set(key, current);
+    }
+    current.last = now;
+    return current;
+  }
   function state(owner: string) {
     let value = states.get(owner);
     if (!value) {
@@ -265,6 +281,8 @@ export async function createAnalytics(options: {
     if ((kind === '$ai_span' || kind === '$ai_trace') && !runId) return;
     const traced = child || kind === '$ai_trace';
     const trace = traced ? (runId ?? system?.trace ?? randomUUID()) : undefined;
+    if (traced && run?.session) run.session.last = Date.now();
+    const session = run ? run.session?.id : runId ? undefined : null;
     const mirror =
       kind === 'model_used' ? '$ai_generation' : kind === 'tool_used' && runId ? '$ai_span' : null;
     try {
@@ -294,6 +312,7 @@ export async function createAnalytics(options: {
             ...('properties' in parsed.data ? parsed.data.properties : {}),
             ...(mirror ? { mirrored_as: mirror } : {}),
             ...(traced ? { $ai_trace_id: trace } : {}),
+            ...(traced && session !== undefined ? { $ai_session_id: session } : {}),
             ...(child ? { $ai_span_id: randomUUID(), $ai_parent_id: trace } : {}),
           },
         },
@@ -380,8 +399,16 @@ export async function createAnalytics(options: {
     setOnboardingProfileAnswers,
     setOnboardingProfileProperties,
     setUpdatesEmail,
-    withRun<T>(owner: string, operation: () => T): T {
-      return runs.run({ owner, id: randomUUID(), consent: consent(owner) }, operation);
+    withRun<T>(owner: string, operation: () => T, session?: string): T {
+      return runs.run(
+        {
+          owner,
+          id: randomUUID(),
+          consent: consent(owner),
+          ...(session ? { session: analyticsSession(owner, session) } : {}),
+        },
+        operation,
+      );
     },
     withSystemWork<T>(
       owner: string,

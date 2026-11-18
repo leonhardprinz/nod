@@ -1251,6 +1251,90 @@ test('tool spans and the turn trace follow the analytics run without private too
   assert.equal(captured.length, 10);
 });
 
+test('AI session IDs group the runs of a session with a random ID that rotates on idle and consent', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-18T09:00:00Z') });
+  const captured: Parameters<ProductAnalytics['capture']>[0][] = [];
+  const analytics = await createAnalytics({
+    provider: { capture: (event) => captured.push(event), shutdown: async () => {} },
+    environment: 'development',
+    dataRoot: '.',
+    installationId: randomUUID(),
+  });
+  t.after(() => analytics.shutdown());
+  const owner = 'synthetic-owner';
+  analytics.setUsageData(owner, true);
+  const chat = `private-session-${randomUUID()}`;
+  const task = `private-session-${randomUUID()}`;
+  const turn = {
+    source: 'user' as const,
+    channel: 'web' as const,
+    background: false,
+    work_type: 'immediate' as const,
+    owner_requested: true,
+  };
+  const generation = {
+    event: '$ai_generation' as const,
+    properties: {
+      $ai_provider: 'openai' as const,
+      $ai_span_name: 'chat' as const,
+      purpose: 'agent' as const,
+      request_kind: 'chat' as const,
+      outcome: 'succeeded' as const,
+      pricing: 'unavailable' as const,
+      $ai_input_tokens: 3,
+      $ai_output_tokens: 1,
+      $ai_cache_reporting_exclusive: true as const,
+      $ai_is_error: false,
+      $ai_total_cost_usd: 0,
+      $ai_cost_passthrough: true as const,
+    },
+  };
+  const run = (session?: string) =>
+    analytics.withRun(
+      owner,
+      () => {
+        const start = captured.length;
+        analytics.capture(owner, generation);
+        for (const event of turnEvents({ ...turn, outcome: 'succeeded', duration_ms: 1 }))
+          analytics.capture(owner, event);
+        return captured
+          .slice(start)
+          .filter(({ event }) => event.startsWith('$ai_'))
+          .map(({ properties }) => properties);
+      },
+      session,
+    );
+  const first = run(chat);
+  assert.deepEqual(
+    first.map((properties) => Object.hasOwn(properties, '$ai_session_id')),
+    [true, true],
+  );
+  const id = first[0].$ai_session_id;
+  assert.match(String(id), /^[0-9a-f-]{36}$/);
+  assert.equal(first[1].$ai_session_id, id);
+  t.mock.timers.tick(29 * 60_000);
+  const second = run(chat);
+  assert.equal(second[0].$ai_session_id, id);
+  assert.notEqual(second[0].$ai_trace_id, first[0].$ai_trace_id);
+  assert.notEqual(run(task)[0].$ai_session_id, id);
+  t.mock.timers.tick(31 * 60_000);
+  const idle = run(chat)[0].$ai_session_id;
+  assert.notEqual(idle, id);
+  analytics.setUsageData(owner, false);
+  analytics.setUsageData(owner, true);
+  assert.notEqual(run(chat)[0].$ai_session_id, idle);
+  assert.equal(Object.hasOwn(run()[0], '$ai_session_id'), false);
+  analytics.capture(owner, generation);
+  assert.equal(captured.at(-1)!.properties.$ai_session_id, null);
+  await analytics.withSystemWork(owner, 'memory_learning', async () =>
+    analytics.capture(owner, generation),
+  );
+  assert.equal(captured.at(-1)!.properties.$ai_session_id, null);
+  for (const event of captured.filter(({ event }) => !event.startsWith('$ai_')))
+    assert.equal(Object.hasOwn(event.properties, '$ai_session_id'), false);
+  assert.equal(JSON.stringify(captured).includes('private-session-'), false);
+});
+
 test('accepted owner messages do not inherit an unrelated run context', async () => {
   const captured: Parameters<ProductAnalytics['capture']>[0][] = [];
   const analytics = await createAnalytics({
