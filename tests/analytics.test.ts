@@ -15,6 +15,8 @@ import {
   analyticsModel,
   createAnalytics,
   registerAnalyticsRoutes,
+  toolEvents,
+  turnEvents,
   type AnalyticsDelivery,
 } from '../src/server/analytics.ts';
 import { analyticsEvent } from '../src/server/analytics-events.ts';
@@ -1104,6 +1106,119 @@ test('model analytics separate retries, helpers and maintenance from the main re
     await session.prompt('private-canary', []);
   });
   assert.equal(captured.length, 74);
+});
+
+test('tool spans and the turn trace follow the analytics run without private tool data', async (t) => {
+  const captured: Parameters<ProductAnalytics['capture']>[0][] = [];
+  const analytics = await createAnalytics({
+    provider: { capture: (event) => captured.push(event), shutdown: async () => {} },
+    environment: 'development',
+    dataRoot: '.',
+    installationId: randomUUID(),
+  });
+  t.after(() => analytics.shutdown());
+  const owner = 'synthetic-owner';
+  analytics.setUsageData(owner, true);
+  const scope = fakeExecution(randomUUID());
+  const tool = (name: string, status: 'succeeded' | 'failed', parentRunId?: string) =>
+    toolEvents({
+      type: 'tool_end',
+      id: 'private-call-canary',
+      name,
+      status,
+      output: 'private-output-canary',
+      error: 'private-error-canary',
+      finishedAt: new Date().toISOString(),
+      durationMs: 1840,
+      execution: { ...scope, parentRunId },
+    });
+  const turn = {
+    source: 'user' as const,
+    channel: 'web' as const,
+    background: false,
+    work_type: 'immediate' as const,
+    owner_requested: true,
+  };
+  const segment = () => [
+    ...tool('private-tool-canary', 'failed'),
+    ...tool('bash', 'succeeded', scope.runId),
+    ...turnEvents({ ...turn, outcome: 'cancelled', result: 'cancelled', duration_ms: 9800 }),
+  ];
+  await analytics.withRun(owner, async () => {
+    analytics.capture(owner, { event: 'turn_started', properties: turn });
+    for (const event of segment()) analytics.capture(owner, event);
+  });
+  const run = captured[0].properties.run_id;
+  assert.deepEqual(
+    captured.map(({ event }) => event),
+    [
+      'turn_started',
+      'tool_used',
+      '$ai_span',
+      'tool_used',
+      '$ai_span',
+      'turn_completed',
+      '$ai_trace',
+    ],
+  );
+  assert.deepEqual(
+    captured.map(({ properties }) => properties.mirrored_as),
+    [undefined, '$ai_span', undefined, '$ai_span', undefined, undefined, undefined],
+  );
+  const spans = captured.filter(({ event }) => event === '$ai_span');
+  assert.deepEqual(
+    spans.map(({ properties: p }) => [
+      p.$ai_span_name,
+      p.$ai_is_error,
+      p.$ai_latency,
+      p.subagent,
+      p.$ai_trace_id,
+      p.$ai_parent_id,
+    ]),
+    [
+      ['other', true, 1.84, false, run, run],
+      ['workspace', false, 1.84, true, run, run],
+    ],
+  );
+  assert.notEqual(spans[0].properties.$ai_span_id, spans[1].properties.$ai_span_id);
+  const sent = captured.at(-1)!.properties;
+  assert.deepEqual(
+    [sent.$ai_span_name, sent.$ai_latency, sent.$ai_is_error, sent.$ai_trace_id, sent.result],
+    ['user', 9.8, false, run, 'cancelled'],
+  );
+  assert.equal(Object.hasOwn(sent, '$ai_span_id'), false);
+  for (const privateValue of ['private-', scope.turnId, scope.sessionId, scope.runId])
+    assert.equal(JSON.stringify(captured).includes(privateValue), false);
+  const [, span, , , , trace] = segment() as { event: string; properties: object }[];
+  for (const [valid, extra] of [
+    [span!, { $ai_input_state: 'private-canary' }],
+    [span!, { $ai_output_state: 'private-canary' }],
+    [span!, { $ai_span_name: 'private-tool-canary' }],
+    [span!, { $ai_parent_id: scope.runId }],
+    [trace!, { $ai_input_state: 'private-canary' }],
+    [trace!, { $ai_trace_id: scope.turnId }],
+    [trace!, { $ai_session_id: scope.sessionId }],
+  ] as const) {
+    assert.equal(analyticsEvent.safeParse(valid).success, true);
+    assert.equal(
+      analyticsEvent.safeParse({ ...valid, properties: { ...valid.properties, ...extra } }).success,
+      false,
+    );
+  }
+  for (const event of segment()) analytics.capture(owner, event);
+  assert.deepEqual(
+    captured.slice(7).map(({ event }) => event),
+    ['tool_used', 'tool_used', 'turn_completed'],
+  );
+  assert.equal(
+    captured.slice(7).some(({ properties }) => 'mirrored_as' in properties),
+    false,
+  );
+  analytics.setUsageData(owner, false);
+  await analytics.withRun(owner, async () => {
+    for (const event of segment()) analytics.capture(owner, event);
+  });
+  assert.equal(captured.length, 10);
 });
 
 test('accepted owner messages do not inherit an unrelated run context', async () => {

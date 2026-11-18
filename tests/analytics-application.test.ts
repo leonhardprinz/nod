@@ -204,6 +204,12 @@ test(
           assert.equal(completed.properties.task_taxonomy_version, 1);
           assert.equal(completed.properties.run_id, started.properties.run_id);
           assert.equal(completed.properties.model, 'claude-opus-5-5');
+          const trace = events.slice(before).find((event) => event.event === '$ai_trace')!;
+          assert.equal(trace.properties.$ai_trace_id, started.properties.run_id);
+          assert.equal(
+            trace.properties.$ai_latency,
+            Number(completed.properties.duration_ms) / 1000,
+          );
           assert.ok(!events.slice(before).some((event) => event.event === 'task_classified'));
           currentClassification.released.resolve();
           await waitFor(

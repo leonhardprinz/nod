@@ -32,7 +32,7 @@ import {
   analyticsEnvironment,
   createAnalytics,
   snapshotAnalytics,
-  toolUsed,
+  toolEvents,
   type CaptureAnalytics,
 } from './analytics.ts';
 import { clearConversationAnalytics } from './conversation-analytics.ts';
@@ -952,7 +952,7 @@ async function initializeApplication(
           callId: id,
         },
       );
-      if (event.type === 'tool_end') captureAnalytics(toolUsed(event));
+      if (event.type === 'tool_end') for (const used of toolEvents(event)) captureAnalytics(used);
       adapters.observe?.(turnId, event);
     },
   });

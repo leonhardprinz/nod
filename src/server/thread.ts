@@ -62,6 +62,7 @@ import type { WorkConsumers } from './work-admission.ts';
 import {
   analyticsModel,
   snapshotAnalytics,
+  turnEvents,
   type AnalyticsEvent,
   type CaptureAnalytics,
 } from './analytics.ts';
@@ -2711,34 +2712,32 @@ async function executeTurn(turn: any, dependencies: ThreadDependencies) {
         })
         .catch((error: unknown) => logFailure('turn_cancellation_failed', error));
     if (work)
-      dependencies.analytics?.({
-        event: 'turn_completed',
-        properties: {
-          ...analyticsProperties,
-          ...work,
-          outcome,
-          result:
-            outcome === 'succeeded'
-              ? replyCommitted
-                ? 'reply'
-                : 'no_reply'
-              : outcome === 'waiting_user' || outcome === 'waiting_credentials'
-                ? 'needs_owner'
-                : outcome,
-          duration_ms: Math.max(0, Date.now() - startedAt),
-          queue_duration_ms: Math.max(0, startedAt - new Date(turn.created_at).getTime()),
-          ...(waitingReason ? { waiting_reason: waitingReason } : {}),
-          ...(outcome === 'failed'
-            ? {
-                failure_reason: limited
-                  ? ('spending_limit' as const)
-                  : failure === 'offline'
-                    ? 'model'
-                    : failure,
-              }
-            : {}),
-        },
-      });
+      for (const event of turnEvents({
+        ...analyticsProperties,
+        ...work,
+        outcome,
+        result:
+          outcome === 'succeeded'
+            ? replyCommitted
+              ? 'reply'
+              : 'no_reply'
+            : outcome === 'waiting_user' || outcome === 'waiting_credentials'
+              ? 'needs_owner'
+              : outcome,
+        duration_ms: Math.max(0, Date.now() - startedAt),
+        queue_duration_ms: Math.max(0, startedAt - new Date(turn.created_at).getTime()),
+        ...(waitingReason ? { waiting_reason: waitingReason } : {}),
+        ...(outcome === 'failed'
+          ? {
+              failure_reason: limited
+                ? ('spending_limit' as const)
+                : failure === 'offline'
+                  ? 'model'
+                  : failure,
+            }
+          : {}),
+      }))
+        dependencies.analytics?.(event);
     running.delete(turnId);
   }
 }

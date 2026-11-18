@@ -114,6 +114,24 @@ const turnProperties = z.object({
   model: analyticsModel.optional(),
   task_taxonomy_version: z.literal(1).optional(),
 });
+const turnOutcome = z.enum([
+  'succeeded',
+  'waiting_credentials',
+  'waiting_user',
+  'failed',
+  'cancelled',
+  'interrupted',
+  'skipped',
+]);
+const turnResult = z.enum([
+  'reply',
+  'needs_owner',
+  'no_reply',
+  'failed',
+  'cancelled',
+  'interrupted',
+  'skipped',
+]);
 export const analyticsEvent = z.discriminatedUnion('event', [
   z
     .object({
@@ -243,30 +261,26 @@ export const analyticsEvent = z.discriminatedUnion('event', [
       event: z.literal('turn_completed'),
       properties: turnProperties
         .extend({
-          outcome: z.enum([
-            'succeeded',
-            'waiting_credentials',
-            'waiting_user',
-            'failed',
-            'cancelled',
-            'interrupted',
-            'skipped',
-          ]),
+          outcome: turnOutcome,
           duration_ms: duration,
           queue_duration_ms: duration.optional(),
-          result: z
-            .enum([
-              'reply',
-              'needs_owner',
-              'no_reply',
-              'failed',
-              'cancelled',
-              'interrupted',
-              'skipped',
-            ])
-            .optional(),
+          result: turnResult.optional(),
           waiting_reason: z.enum(['question', 'approval', 'credentials']).optional(),
           failure_reason: z.enum(['spending_limit', 'model', 'unknown']).optional(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      event: z.literal('$ai_trace'),
+      properties: z
+        .object({
+          $ai_span_name: turnProperties.shape.source,
+          $ai_latency: seconds,
+          $ai_is_error: z.boolean(),
+          outcome: turnOutcome,
+          result: turnResult.optional(),
         })
         .strict(),
     })
@@ -466,6 +480,20 @@ export const analyticsEvent = z.discriminatedUnion('event', [
           tool: analyticsTool,
           outcome: z.enum(['succeeded', 'failed', 'cancelled']),
           duration_ms: duration,
+          subagent: z.boolean(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      event: z.literal('$ai_span'),
+      properties: z
+        .object({
+          $ai_span_name: analyticsTool,
+          $ai_latency: seconds,
+          $ai_is_error: z.boolean(),
+          outcome: z.enum(['succeeded', 'failed', 'cancelled']),
           subagent: z.boolean(),
         })
         .strict(),
