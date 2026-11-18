@@ -108,11 +108,11 @@ Opt-out must discard queued and retry events. Asynchronous callbacks from an ear
 
 ## Change or remove a contract
 
-| Change                                                                | Action                                                                                  |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Add an optional property or bounded value without changing meaning    | Update schemas, collectors, docs, and relevant insights.                                |
-| Rename an event/property or change its meaning in a released contract | Bump `schemaVersion` in `src/shared/analytics.ts` and replace affected insight queries. |
-| Remove collection                                                     | Delete the collector and schema entry, then remove or replace dependent insights.       |
+| Change                                                                | Action                                                                                       |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Add an optional property or bounded value without changing meaning    | Update schemas, collectors, docs, and relevant insights.                                     |
+| Rename an event/property or change its meaning in a released contract | Bump `schemaVersion` in `src/shared/posthog-host.json` and replace affected insight queries. |
+| Remove collection                                                     | Delete the collector and schema entry, then remove or replace dependent insights.            |
 
 The current contract is `v4`. It starts fresh. There is no historical migration or requirement to preserve a one-to-one event mapping. Earlier events can remain in PostHog storage but aren't used by current dashboards.
 
