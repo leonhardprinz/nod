@@ -182,6 +182,7 @@ export async function createAnalytics(options: {
     owner: string;
     activity: z.infer<typeof systemActivity>;
     consent: ReturnType<typeof consent>;
+    trace: string;
   }>();
   let closed = false;
   function state(owner: string) {
@@ -263,7 +264,7 @@ export async function createAnalytics(options: {
     const child = generation || kind === '$ai_span';
     if ((kind === '$ai_span' || kind === '$ai_trace') && !runId) return;
     const traced = child || kind === '$ai_trace';
-    const trace = traced ? (runId ?? randomUUID()) : undefined;
+    const trace = traced ? (runId ?? system?.trace ?? randomUUID()) : undefined;
     const mirror =
       kind === 'model_used' ? '$ai_generation' : kind === 'tool_used' && runId ? '$ai_span' : null;
     try {
@@ -389,7 +390,10 @@ export async function createAnalytics(options: {
     ): T {
       const parsed = systemActivity.safeParse(activity);
       if (runs.getStore() || systems.getStore() || !parsed.success) return operation();
-      return systems.run({ owner, activity: parsed.data, consent: consent(owner) }, operation);
+      return systems.run(
+        { owner, activity: parsed.data, consent: consent(owner), trace: randomUUID() },
+        operation,
+      );
     },
     currentRun(owner: string) {
       const run = runs.getStore();

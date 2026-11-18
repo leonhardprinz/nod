@@ -2274,6 +2274,7 @@ describe('analytics privacy', () => {
       (['memory_learning', 'onboarding', 'writing_style'] as const).map((activity) =>
         analytics.withSystemWork(owner, activity, async () => {
           await model();
+          await model();
           analytics.capture(owner, {
             event: 'service_used',
             properties: {
@@ -2290,9 +2291,15 @@ describe('analytics privacy', () => {
       const events = captured.filter((event) => event.properties.system_activity === activity);
       assert.deepEqual(events.map((event) => event.event).sort(), [
         '$ai_generation',
+        '$ai_generation',
+        'model_used',
         'model_used',
         'service_used',
       ]);
+      const grouped = events
+        .filter((event) => event.event === '$ai_generation')
+        .map((event) => event.properties.$ai_trace_id);
+      assert.equal(grouped[0], grouped[1]);
       assert.ok(
         events.every(
           (event) =>
@@ -2307,6 +2314,7 @@ describe('analytics privacy', () => {
     const traces = captured
       .filter((event) => event.event === '$ai_generation')
       .map((event) => event.properties.$ai_trace_id);
+    assert.equal(traces.length, 7);
     assert.equal(new Set(traces).size, 4);
     assert.ok(traces.every((trace) => /^[0-9a-f-]{36}$/.test(String(trace))));
     await analytics.withRun(owner, async () => {
